@@ -85,6 +85,34 @@
         letter-spacing: -0.025625rem;
         text-align: center;
     }
+
+    /**
+      * @note: don't use transparent
+      * https://www.w3.org/TR/css-images-4/#ref-for-color-stop-25
+      * No browser renders transparent as rgba(255, 255, 255, 0),
+      * that's completely wrong, transparent is always rgba(0,0,0,0),
+      * as defined in the CSS Color 3 specification.
+      * However, a few years ago W3C changed how color interpolation works in gradients
+      * and specified it should happen in a premultiplied RGBA space, exactly to fix
+      * this issue and make interpolation with transparent work as expected.
+      * Looks like other browsers have implemented this change, but Safari hasn't yet.
+      *
+      * For most browsers ~ transparent === rgba(255,255,255,0)
+      * But Safari renders it as ~ transparent === rgba(0,0,0,0)
+     */
+    &:after {
+        /* Safari 9+ */
+        @supports (-webkit-hyphens: none) {
+            & {
+                background-image: linear-gradient(
+                    to right,
+                    var(--tui-base-01) 0%,
+                    var(--tui-base-01) 80%,
+                    var(--tui-base-01) 100%
+                );
+            }
+        }
+    }
 }
 
 .t-years {

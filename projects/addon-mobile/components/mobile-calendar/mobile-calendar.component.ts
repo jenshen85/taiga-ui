@@ -4,7 +4,6 @@ import {
     ChangeDetectionStrategy,
     Component,
     EventEmitter,
-    HostBinding,
     Inject,
     Input,
     Output,
@@ -63,6 +62,7 @@ import {
     styleUrls: ['./mobile-calendar.style.less'],
     changeDetection: ChangeDetectionStrategy.OnPush,
     providers: TUI_MOBILE_CALENDAR_PROVIDERS,
+    host: {'[class._ios]': 'isIOS'},
 })
 export class TuiMobileCalendarComponent {
     @ViewChild('yearsScrollRef')
@@ -74,6 +74,7 @@ export class TuiMobileCalendarComponent {
     private readonly today = TuiDay.currentLocal();
     private activeYear = this.initialYear;
     private activeMonth = this.initialMonth;
+    private _value: TuiDay | TuiDayRange | null = null;
 
     @Input()
     @tuiDefaultProp()
@@ -97,10 +98,8 @@ export class TuiMobileCalendarComponent {
     @Output()
     readonly confirm = new EventEmitter<TuiDayRange | TuiDay>();
 
-    @HostBinding('class._ios')
-    readonly isIOS: boolean;
-
-    value: TuiDay | TuiDayRange | null = null;
+    @Output()
+    readonly valueChanges = new EventEmitter<TuiDay | TuiDayRange | null>();
 
     readonly years = Array.from({length: RANGE}, (_, i) => i + STARTING_YEAR);
 
@@ -114,12 +113,11 @@ export class TuiMobileCalendarComponent {
     );
 
     constructor(
-        @Inject(TUI_IS_IOS) isIOS: boolean,
+        @Inject(TUI_IS_IOS) readonly isIOS: boolean,
         @Inject(DOCUMENT) private readonly documentRef: Document,
         @Inject(TuiDestroyService)
         private readonly destroy$: TuiDestroyService,
-        @Inject(TUI_VALUE_STREAM)
-        valueChanges: Observable<TuiDayRange | null>,
+        @Inject(TUI_VALUE_STREAM) valueChanges: Observable<TuiDayRange | null>,
         @Inject(TUI_CLOSE_WORD) readonly closeWord$: Observable<string>,
         @Inject(TUI_CANCEL_WORD) readonly cancelWord$: Observable<string>,
         @Inject(TUI_DONE_WORD) readonly doneWord$: Observable<string>,
@@ -130,11 +128,18 @@ export class TuiMobileCalendarComponent {
         @Inject(TUI_CHOOSE_DAY_OR_RANGE_TEXTS)
         readonly chooseDayOrRangeTexts$: Observable<[string, string]>,
     ) {
-        this.isIOS = isIOS;
-
         valueChanges.pipe(takeUntil(this.destroy$)).subscribe(value => {
             this.value = value;
         });
+    }
+
+    get value() {
+        return this._value;
+    }
+
+    set value(value: TuiDay | TuiDayRange | null) {
+        this._value = value;
+        this.valueChanges.emit(value);
     }
 
     get yearWidth(): number {
@@ -142,19 +147,32 @@ export class TuiMobileCalendarComponent {
     }
 
     ngAfterViewInit() {
-        if (!this.monthsScrollRef) {
-            return;
-        }
-
-        // Virtual scroll has not yet rendered items even in ngAfterViewInit
-        this.monthsScrollRef.scrolledIndexChange
+        this.monthsScrollRef?.scrolledIndexChange
             .pipe(take(1), takeUntil(this.destroy$))
             .subscribe(() => {
-                this.scrollToActiveYear();
-                this.scrollToActiveMonth();
                 this.initYearScroll();
                 this.initMonthScroll();
+
+                if (this.getYearsViewportSize() > 0) {
+                    this.scrollToActiveYearAndMonth();
+                } else {
+                    this.idleCheckViewportSize();
+                }
             });
+    }
+
+    getYearsViewportSize() {
+        return this.yearsScrollRef?.getViewportSize() || 0;
+    }
+
+    checkViewportSize() {
+        this.yearsScrollRef?.checkViewportSize();
+        this.monthsScrollRef?.checkViewportSize();
+    }
+
+    scrollToActiveYearAndMonth() {
+        this.scrollToActiveYear();
+        this.scrollToActiveMonth();
     }
 
     onClose() {
@@ -170,6 +188,10 @@ export class TuiMobileCalendarComponent {
     }
 
     onDayClick(day: TuiDay) {
+        if (this.dayIsOutOfRange(day)) {
+            return;
+        }
+
         if (this.single) {
             this.value = day;
 
@@ -252,6 +274,22 @@ export class TuiMobileCalendarComponent {
         }
 
         return this.value.from.year;
+    }
+
+    private idleCheckViewportSize() {
+        this.yearsScrollRef?.scrolledIndexChange
+            .pipe(delay(200), take(1), takeUntil(this.destroy$))
+            .subscribe(() => {
+                this.checkViewportSize();
+                this.scrollToActiveYearAndMonth();
+            });
+    }
+
+    private dayIsOutOfRange(day: TuiDay): boolean {
+        return (
+            day.toLocalNativeDate() < this.min.toLocalNativeDate() ||
+            day.toLocalNativeDate() > this.max.toLocalNativeDate()
+        );
     }
 
     private get initialMonth(): number {
@@ -350,7 +388,7 @@ export class TuiMobileCalendarComponent {
             'touchend',
         );
 
-        // Smooth scroll to closest month after scrolling is done
+        // Smooth scroll to the closest month after scrolling is done
         touchstart$
             .pipe(
                 switchMapTo(touchend$),
@@ -372,18 +410,14 @@ export class TuiMobileCalendarComponent {
     }
 
     private scrollToActiveYear(behavior?: ScrollBehavior) {
-        if (this.yearsScrollRef) {
-            this.yearsScrollRef.scrollToIndex(
-                Math.max(this.activeYear - STARTING_YEAR - 2, 0),
-                behavior,
-            );
-        }
+        this.yearsScrollRef?.scrollToIndex(
+            Math.max(this.activeYear - STARTING_YEAR - 2, 0),
+            behavior,
+        );
     }
 
     private scrollToActiveMonth(behavior?: ScrollBehavior) {
-        if (this.monthsScrollRef) {
-            this.monthsScrollRef.scrollToIndex(this.activeMonth, behavior);
-        }
+        this.monthsScrollRef?.scrollToIndex(this.activeMonth, behavior);
     }
 
     private isYearActive(index: number): boolean {
